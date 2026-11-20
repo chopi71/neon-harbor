@@ -11,13 +11,33 @@
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-app.ts';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+
+// Preflight: catch a broken entry here, at build time, rather than at the gate. The app needs its
+// entry point, and the handover needs the 3 or 4 screenshots the scorer will look for — anything
+// else is a mistake in this folder, so name it and stop before a single byte is copied.
+function preflight(root: string): void {
+  if (!existsSync(join(root, 'app', 'index.html'))) {
+    throw new Error('preflight: app/index.html is missing, so the app has no entry point to hand in');
+  }
+  const shotsDir = join(root, 'screenshots');
+  const shots = existsSync(shotsDir)
+    ? readdirSync(shotsDir).filter((name) => /\.(png|jpe?g)$/i.test(name))
+    : [];
+  if (shots.length < 3 || shots.length > 4) {
+    throw new Error(
+      `preflight: screenshots/ holds ${shots.length} image file(s); the entry needs 3 or 4 PNG or JPEG screenshots`,
+    );
+  }
+}
+
+preflight(here);
 
 mkdirSync(out, { recursive: true });
 cpSync(join(here, 'app'), join(out, 'app'), { recursive: true });
@@ -38,3 +58,9 @@ writeFileSync(
     app_path_max_bytes: 1000,
   }),
 );
+
+// Handover summary: say plainly what went out the door — the files under app/ and the dossier's size.
+const handedIn = readdirSync(join(out, 'app'), { recursive: true }).filter((name) =>
+  statSync(join(out, 'app', name)).isFile(),
+).length;
+console.log(`handed in: ${handedIn} file(s) under app/, dossier.json ${statSync(join(out, 'dossier.json')).size} bytes`);
